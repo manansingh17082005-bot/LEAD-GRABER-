@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>LeadPilot AI — Skill-based lead finder</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#"><span class="brand-mark">LP</span><span><b>LeadPilot</b><small>AI LEAD WORKSPACE</small></span></a>
+      <div class="side-label">WORKSPACE</div>
+      <button class="nav-item active" data-view="dashboard"><span>▦</span> Lead dashboard</button>
+      <button class="nav-item" data-view="saved"><span>▤</span> Saved leads <span id="saved-count" class="nav-count">0</span></button>
+      <button class="nav-item" data-view="campaigns"><span>✉</span> Outreach drafts</button>
+      <div class="sidebar-bottom">
+        <div class="connection-dot" id="connection-dot"></div>
+        <div><b id="connection-title">Local preview mode</b><small id="connection-subtitle">Connect Supabase to sync</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><div class="eyebrow">PROSPECTING WORKSPACE</div><h1 id="page-title">Find your next client</h1></div>
+        <div class="top-actions"><span id="user-label" class="user-label">Not signed in</span><button id="auth-button" class="button button-quiet">Connect account</button></div>
+      </header>
+
+      <section id="dashboard-view" class="view">
+        <div class="hero">
+          <div><span class="pill">SKILL-BASED DISCOVERY</span><h2>One skill. More relevant leads.</h2><p>Choose the service you want to sell. LeadPilot builds focused search queries and keeps results organised in one place.</p></div>
+          <div class="hero-orb"><span>✳</span></div>
+        </div>
+
+        <section class="panel search-panel">
+          <div class="section-heading"><div><h3>Build a lead search</h3><p>Search public web results or business listings through connected APIs.</p></div><span class="step-tag">01 / DISCOVER</span></div>
+          <div class="form-grid">
+            <label class="field full"><span>Service / skill</span>
+              <select id="skill">
+                <option value="Excel and data analytics">Excel &amp; Data Analytics</option>
+                <option value="video editing and short-form video production">Video Editing &amp; Reels</option>
+                <option value="website design and website development">Website Development</option>
+                <option value="social media management and content strategy">Social Media Management</option>
+                <option value="graphic design logo design and promotional creatives">Graphic Design &amp; Logos</option>
+                <option value="bookkeeping accounting and financial spreadsheets">Bookkeeping &amp; Accounting</option>
+                <option value="custom skill">Custom skill…</option>
+              </select>
+            </label>
+            <label class="field" id="custom-skill-wrap" hidden><span>Custom skill</span><input id="custom-skill" placeholder="e.g. Python automation"></label>
+            <label class="field"><span>Target location / market</span><input id="location" value="Worldwide" placeholder="e.g. Noida, India or Worldwide"></label>
+            <label class="field"><span>Business type (optional)</span><input id="business-type" placeholder="e.g. restaurants, agencies, ecommerce"></label>
+            <label class="field"><span>Result freshness</span><select id="freshness"><option value="">Any available</option><option value="pw">Past 7 days</option><option value="pm">Past 31 days</option><option value="py">Past year</option></select></label>
+            <label class="field"><span>Search sources</span><select id="source"><option value="web">Web search API</option><option value="places">Business listings API</option><option value="both">Web + business listings</option></select></label>
+            <label class="field"><span>Result target</span><select id="count"><option>10</option><option selected>20</option><option>40</option></select></label>
+          </div>
+          <div class="search-footer"><div class="hint"><span class="hint-icon">i</span><span>Search results are prospects to review, not guaranteed buyers. Verify fit and contact permissions before outreach.</span></div><button id="search-button" class="button button-primary"><span>⌕</span> Find relevant leads</button></div>
+          <div id="search-status" class="status-line" role="status"></div>
+        </section>
+
+        <div class="stats-grid">
+          <div class="stat-card"><span class="stat-icon">◎</span><span class="stat-label">Leads saved</span><strong id="stat-total">0</strong><small>Across your workspace</small></div>
+          <div class="stat-card"><span class="stat-icon">↗</span><span class="stat-label">Ready to review</span><strong id="stat-review">0</strong><small>Not yet contacted</small></div>
+          <div class="stat-card"><span class="stat-icon">✉</span><span class="stat-label">Contacted</span><strong id="stat-contacted">0</strong><small>Marked by you</small></div>
+        </div>
+
+        <section class="panel results-panel">
+          <div class="section-heading"><div><h3 id="results-heading">Lead results</h3><p id="results-subheading">Your latest search results will appear here.</p></div><button id="export-button" class="button button-quiet">Export CSV ↗</button></div>
+          <div class="table-wrap"><table><thead><tr><th>BUSINESS / RESULT</th><th>WHY IT MATCHES</th><th>SOURCE</th><th>STATUS</th><th></th></tr></thead><tbody id="lead-rows"><tr><td colspan="5" class="empty-state"><span>⌕</span><b>No leads yet</b><small>Choose a skill above and run your first search.</small></td></tr></tbody></table></div>
+        </section>
+      </section>
+
+      <section id="saved-view" class="view" hidden>
+        <section class="panel"><div class="section-heading"><div><h3>Saved leads</h3><p>Review, update status, export, or prepare an outreach message.</p></div><button class="button button-quiet" id="saved-export-button">Export CSV ↗</button></div><div class="table-wrap"><table><thead><tr><th>BUSINESS / RESULT</th><th>WHY IT MATCHES</th><th>SOURCE</th><th>STATUS</th><th></th></tr></thead><tbody id="saved-rows"></tbody></table></div></section>
+      </section>
+
+      <section id="campaigns-view" class="view" hidden>
+        <section class="panel campaign-panel"><div class="section-heading"><div><h3>Outreach drafts</h3><p>Generate a relevant first message. Review and send it yourself.</p></div><span class="step-tag">02 / CONNECT</span></div>
+          <label class="field"><span>Select a saved lead</span><select id="campaign-lead"><option value="">Choose a lead…</option></select></label>
+          <label class="field"><span>Your name / business</span><input id="sender-name" value="Manan Singh" placeholder="Your name"></label>
+          <label class="field"><span>What can you offer?</span><textarea id="offer" rows="2" placeholder="e.g. short-form video editing, captions and monthly content support"></textarea></label>
+          <label class="field"><span>Personalised message</span><textarea id="message-output" rows="7" placeholder="Choose a lead and generate a draft…"></textarea></label>
+          <div class="button-row"><button id="generate-message" class="button button-primary">Generate message</button><button id="copy-message" class="button button-quiet">Copy text</button><button id="whatsapp-message" class="button button-whatsapp">Open WhatsApp ↗</button></div>
+          <p class="fine-print">WhatsApp opens a pre-filled draft; you must review and press Send. Do not message people who have not agreed to receive your outreach. Automated sending requires the official WhatsApp Business Platform and appropriate permissions.</p>
+        </section>
+      </section>
+
+      <footer>LeadPilot AI <span>•</span> Built for focused, responsible prospecting</footer>
+    </main>
+  </div>
+
+  <dialog id="auth-dialog" class="modal">
+    <form method="dialog" class="modal-close"><button aria-label="Close">×</button></form>
+    <h3>Connect your workspace</h3><p>Sign in to Supabase to sync saved leads across devices. Without setup, this demo stores leads in this browser only.</p>
+    <label class="field"><span>Email</span><input id="auth-email" type="email" autocomplete="email" placeholder="you@example.com"></label>
+    <label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="current-password" placeholder="At least 8 characters"></label>
+    <div class="button-row"><button id="sign-in-button" class="button button-primary" type="button">Sign in</button><button id="sign-up-button" class="button button-quiet" type="button">Create account</button></div>
+    <div id="auth-status" class="status-line"></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
