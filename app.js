@@ -360,7 +360,188 @@
     ];
   }
 
-  async function searchLeads() {
+ 
+async function searchLeads() {
+  const skill = getSkill();
+  const requestedLocation = $("location").value.trim() || "Worldwide";
+  const businessType = $("business-type").value.trim();
+  const source = $("source").value;
+  const freshness = $("freshness").value;
+  const targetCount = Number($("count").value);
+
+  if (!skill) {
+    statusText("Choose a service first.", "error");
+    return;
+  }
+
+  const button = $("search-button");
+  button.disabled = true;
+  button.textContent = "Searching…";
+  statusText("Searching India and international markets…");
+
+  try {
+    if (!online()) {
+      statusText(
+        configured
+          ? "Please sign in to Supabase before searching."
+          : "Supabase is not configured. Check config.js.",
+        "error"
+      );
+      return;
+    }
+
+    // Search the two markets separately to reduce duplicates.
+    const markets = [
+      {
+        location: "India",
+        label: "India",
+        target: targetCount === 10 ? 10 : 20
+      },
+      {
+        location: "International businesses outside India",
+        label: "International",
+        target: targetCount === 10 ? 0 : 20
+      }
+    ];
+
+    const combined = [];
+    const seenUrls = new Set();
+    const errors = [];
+
+    for (const market of markets) {
+      if (!market.target) continue;
+
+      statusText(`Searching ${market.label}…`);
+
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          "search-leads",
+          {
+            body: {
+              skill,
+              location: market.location,
+              businessType,
+              source,
+              freshness,
+              count: market.target,
+              queries: buildQueries(
+                skill,
+                market.location,
+                businessType
+              )
+            }
+          }
+        );
+
+        if (error) throw error;
+
+        const results = Array.isArray(data?.results)
+          ? data.results
+          : [];
+
+        for (const result of results) {
+          if (!result.url) continue;
+
+          let normalizedUrl;
+          try {
+            const parsed = new URL(result.url);
+            normalizedUrl = parsed.origin + parsed.pathname.replace(/\/+$/, "");
+          } catch {
+            continue;
+          }
+
+          if (seenUrls.has(normalizedUrl)) continue;
+          seenUrls.add(normalizedUrl);
+
+          combined.push({
+            ...result,
+            id: result.id || crypto.randomUUID(),
+            location: result.location || market.label,
+            skill,
+            status: result.status || "New",
+            phone: String(result.phone || "").trim(),
+            market: market.label
+          });
+        }
+      } catch (marketError) {
+        console.error(`${market.label} search failed:`, marketError);
+        errors.push(market.label);
+      }
+    }
+
+    if (!combined.length) {
+      currentLeads = [];
+      renderResults();
+      statusText(
+        errors.length
+          ? `Search failed for: ${errors.join(", ")}. Check Edge Function logs and API configuration.`
+          : "No results returned. Try another service or business type.",
+        "error"
+      );
+      return;
+    }
+
+    // Save the results and preserve existing statuses/contact details.
+    const existing = await allLeads();
+    const existingByUrl = new Map(
+      existing.filter(item => item.url).map(item => [item.url, item])
+    );
+
+    let added = 0;
+
+    for (const lead of combined) {
+      const previous = existingByUrl.get(lead.url);
+
+      const savedLead = {
+        ...lead,
+        phone: lead.phone || previous?.phone || "",
+        email: lead.email || previous?.email || "",
+        status: previous?.status || "New"
+      };
+
+      await saveLead(savedLead);
+
+      if (!previous) added++;
+    }
+
+    currentLeads = combined.map(lead => {
+      const previous = existingByUrl.get(lead.url);
+
+      return {
+        ...lead,
+        phone: lead.phone || previous?.phone || "",
+        email: lead.email || previous?.email || "",
+        status: previous?.status || "New"
+      };
+    });
+
+    const indiaCount = currentLeads.filter(
+      lead => lead.market === "India"
+    ).length;
+
+    const internationalCount = currentLeads.filter(
+      lead => lead.market === "International"
+    ).length;
+
+    renderResults();
+
+    statusText(
+      `Found ${currentLeads.length} results: ${indiaCount} India, ${internationalCount} international. ${added} new leads saved. Review each business before contacting it.`,
+      "success"
+    );
+  } catch (error) {
+    console.error(error);
+    statusText(
+      `${error.message || "Search failed."} Check Supabase and the search-leads function.`,
+      "error"
+    );
+  } finally {
+    button.disabled = false;
+    button.innerHTML = "<span>⌕</span> Find relevant leads";
+    await renderAll();
+  }
+}
+{
     const skill = getSkill();
     const location = $("location").value.trim() || "Worldwide";
     const businessType = $("business-type").value.trim();
