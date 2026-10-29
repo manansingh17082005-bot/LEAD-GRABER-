@@ -752,3 +752,111 @@ footer span {
     min-height: 180px;
   }
 }
+
+/* FIX SAVED LEADS: keep table and business details inside screen */
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app-shell,
+.main,
+#saved-view {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+#saved-view {
+  width: 100%;
+  overflow: hidden;
+}
+
+#saved-view .panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+#saved-view .table-wrap {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto !important;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+}
+
+#saved-view table {
+  width: 100%;
+  min-width: 650px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+#saved-view th,
+#saved-view td {
+  padding: 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+#saved-view td:nth-child(1) {
+  width: 22%;
+}
+
+#saved-view td:nth-child(2) {
+  width: 30%;
+}
+
+#saved-view td:nth-child(3) {
+  width: 17%;
+}
+
+#saved-view td:nth-child(4) {
+  width: 17%;
+}
+
+#saved-view td:nth-child(5) {
+  width: 14%;
+}
+
+#saved-view .lead-title,
+#saved-view .lead-meta,
+#saved-view .match-note {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+#saved-view button,
+#saved-view select {
+  max-width: 100%;
+  white-space: normal;
+}
+
+@media (max-width: 760px) {
+  #saved-view .panel {
+    padding: 12px;
+  }
+
+  #saved-view table {
+    min-width: 650px;
+  }
+
+  #saved-view .table-wrap::after {
+    content: "Swipe left or right to view all columns";
+    display: block;
+    padding: 10px 0;
+    color: #91a0b8;
+    font-size: 11px;
+  }
+}
