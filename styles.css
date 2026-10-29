@@ -876,6 +876,40 @@ select {
   color-scheme: dark;
 }
 
+/* FIX: WhatsApp saved-lead dropdown going off-screen */
+
+#campaigns-view select,
+#whatsapp-view select,
+select {
+  max-width: 100% !important;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Keep the dropdown control within its parent */
+#campaigns-view,
+#whatsapp-view,
+#campaigns-view .panel,
+#whatsapp-view .panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Dark native dropdown options */
+select,
+select option {
+  background-color: #0b1425 !important;
+  color: #f8fafc !important;
+}
+
+/* Prevent page from stretching horizontally */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+
 select option:checked {
   background-color: #2563eb !important;
   color: #ffffff !important;
