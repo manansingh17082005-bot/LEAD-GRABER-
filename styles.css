@@ -860,3 +860,23 @@ body {
     font-size: 11px;
   }
 }
+
+/* FIX: Saved lead dropdown text invisible on white background */
+
+#campaigns-view select,
+#campaigns-view select option,
+#whatsapp-view select,
+#whatsapp-view select option,
+select option {
+  background-color: #0b1425 !important;
+  color: #f8fafc !important;
+}
+
+select {
+  color-scheme: dark;
+}
+
+select option:checked {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
