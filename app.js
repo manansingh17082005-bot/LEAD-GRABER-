@@ -2,35 +2,37 @@
 (() => {
   "use strict";
 
+  const $ = id => document.getElementById(id);
   const cfg = window.LEADPILOT_CONFIG || {};
-  const configured =
-    cfg.SUPABASE_URL &&
-    !cfg.SUPABASE_URL.includes("YOUR_PROJECT_REF") &&
-    cfg.SUPABASE_ANON_KEY &&
-    !cfg.SUPABASE_ANON_KEY.includes("YOUR_SUPABASE");
+  const configured = Boolean(
+    cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY
+  );
 
-  const $ = (id) => document.getElementById(id);
-  const STORAGE_KEY = "leadpilot_leads_v1";
+  const STORAGE_KEY = "lead_graber_leads_v1";
 
   let supabase = null;
   let user = null;
   let currentLeads = [];
   let currentView = "dashboard";
+  let queue = [];
+  let queueIndex = 0;
   let toastTimer;
 
-  const esc = (s) =>
-    String(s ?? "").replace(/[&<>"']/g, (c) => ({
+  const esc = value =>
+    String(value ?? "").replace(/[&<>"']/g, c => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
-      "'": "&#39;",
+      "'": "&#39;"
     })[c]);
 
-  const safeUrl = (s) => {
+  const safeUrl = value => {
     try {
-      const u = new URL(s);
-      return ["http:", "https:"].includes(u.protocol) ? u.href : "#";
+      const u = new URL(value);
+      return ["http:", "https:"].includes(u.protocol)
+        ? u.href
+        : "#";
     } catch {
       return "#";
     }
@@ -38,46 +40,90 @@
 
   const localLeads = () => {
     try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      return JSON.parse(
+        localStorage.getItem(STORAGE_KEY) || "[]"
+      );
     } catch {
       return [];
     }
   };
 
-  const setLocalLeads = (rows) =>
+  const writeLocal = rows =>
     localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
 
-  const notify = (msg) => {
-    const t = $("toast");
-    if (!t) {
-      console.log(msg);
-      return;
-    }
-    t.textContent = msg;
-    t.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove("show"), 2800);
-  };
+  const isConnected = () => Boolean(supabase && user);
 
-  const statusText = (msg, type = "") => {
+  function notify(message) {
+    const el = $("toast");
+    if (!el) return;
+
+    el.textContent = message;
+    el.classList.add("show");
+
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(
+      () => el.classList.remove("show"),
+      2800
+    );
+  }
+
+  function setStatus(message, type = "") {
     const el = $("search-status");
     if (!el) return;
-    el.textContent = msg;
-    el.className = "status-line " + type;
-  };
 
-  const authStatus = (msg, type = "") => {
+    el.textContent = message;
+    el.className = "status-line " + type;
+  }
+
+  function setAuthStatus(message, type = "") {
     const el = $("auth-status");
     if (!el) return;
-    el.textContent = msg;
-    el.className = "status-line " + type;
-  };
 
-  const online = () => Boolean(supabase && user);
+    el.textContent = message;
+    el.className = "status-line " + type;
+  }
+
+  function updateConnection(message = "") {
+    if ($("connection-dot")) {
+      $("connection-dot").classList.toggle(
+        "online",
+        isConnected()
+      );
+    }
+
+    if ($("connection-title")) {
+      $("connection-title").textContent = isConnected()
+        ? "Cloud sync connected"
+        : configured
+          ? "Sign in to sync"
+          : "Local mode";
+    }
+
+    if ($("connection-subtitle")) {
+      $("connection-subtitle").textContent = isConnected()
+        ? "Supabase account connected"
+        : message || (
+          configured
+            ? "Sign in to search live leads"
+            : "Check config.js"
+        );
+    }
+
+    if ($("user-label")) {
+      $("user-label").textContent =
+        user?.email || "Not signed in";
+    }
+
+    if ($("auth-button")) {
+      $("auth-button").textContent = user
+        ? "Sign out"
+        : "Sign in / Create account";
+    }
+  }
 
   async function initSupabase() {
     if (!configured) {
-      updateConnection();
+      updateConnection("Supabase URL/key missing");
       await renderAll();
       return;
     }
@@ -99,196 +145,130 @@
         user = session?.user || null;
         updateConnection();
         renderAll();
-
-        if (user) syncLocalToCloud();
       });
 
       updateConnection();
       await renderAll();
-    } catch (e) {
-      console.error(e);
-      updateConnection(
-        "Supabase SDK could not load. Check your internet connection."
-      );
-    }
-  }
-
-  function updateConnection(error) {
-    const dot = $("connection-dot");
-    if (dot) dot.classList.toggle("online", online());
-
-    const title = $("connection-title");
-    if (title) {
-      title.textContent = online()
-        ? "Cloud sync connected"
-        : configured
-          ? "Sign in to sync"
-          : "Local preview mode";
-    }
-
-    const subtitle = $("connection-subtitle");
-    if (subtitle) {
-      subtitle.textContent = online()
-        ? "Your leads sync to Supabase"
-        : error ||
-          (configured
-            ? "Sign in to access your workspace"
-            : "Connect Supabase to sync");
-    }
-
-    const label = $("user-label");
-    if (label) label.textContent = user?.email || "Local workspace";
-
-    const authButton = $("auth-button");
-    if (authButton) {
-      authButton.textContent = user
-        ? "Sign out"
-        : configured
-          ? "Sign in / Create account"
-          : "Set up Supabase";
+    } catch (error) {
+      console.error(error);
+      updateConnection("Could not load Supabase SDK");
     }
   }
 
   async function allLeads() {
-    if (online()) {
+    if (isConnected()) {
       const { data, error } = await supabase
         .from("leads")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(1000);
 
-      if (!error && data) return data.map(fromDb);
+      if (!error && data) {
+        return data.map(fromDb);
+      }
 
-      console.error("Could not load cloud leads:", error);
+      console.error("Loading cloud leads failed:", error);
     }
 
     return localLeads();
   }
 
-  function fromDb(r) {
+  function fromDb(row) {
     return {
-      id: r.id,
-      name: r.name,
-      url: r.url,
-      snippet: r.snippet || "",
-      source: r.source || "web",
-      location: r.location || "",
-      skill: r.skill || "",
-      status: r.status || "New",
-      phone: r.phone || "",
-      email: r.email || "",
-      created_at: r.created_at,
-      user_id: r.user_id,
+      id: row.id,
+      name: row.name || "Unnamed business",
+      url: row.url || "",
+      snippet: row.snippet || "",
+      source: row.source || "web",
+      location: row.location || "",
+      market: row.market || "",
+      skill: row.skill || "",
+      status: row.status || "New",
+      phone: row.phone || "",
+      email: row.email || "",
+      created_at: row.created_at
     };
   }
 
   async function saveLead(lead) {
-    const normalized = {
+    const item = {
       ...lead,
-      id: lead.id || crypto.randomUUID(),
+      id: lead.id || (
+        crypto.randomUUID
+          ? crypto.randomUUID()
+          : String(Date.now()) + Math.random()
+      ),
       status: lead.status || "New",
-      phone: String(lead.phone || "").trim(),
+      phone: String(lead.phone || "").trim()
     };
 
     const rows = localLeads();
-    const existingIndex = rows.findIndex(
-      (r) =>
-        (r.url && r.url === normalized.url) ||
-        r.id === normalized.id
+
+    const index = rows.findIndex(row =>
+      (item.url && row.url === item.url) ||
+      String(row.id) === String(item.id)
     );
 
-    if (existingIndex >= 0) {
-      // Keep existing values, but fill an empty phone with a newly
-      // discovered number. Do not overwrite a saved number with blank.
-      rows[existingIndex] = {
-        ...rows[existingIndex],
-        ...normalized,
-        phone:
-          normalized.phone || rows[existingIndex].phone || "",
+    if (index >= 0) {
+      rows[index] = {
+        ...rows[index],
+        ...item,
+        phone: item.phone || rows[index].phone || ""
       };
     } else {
-      rows.unshift(normalized);
+      rows.unshift(item);
     }
 
-    setLocalLeads(rows);
+    writeLocal(rows);
 
-    if (online()) {
+    if (isConnected()) {
       const payload = {
         user_id: user.id,
-        name: normalized.name,
-        url: normalized.url,
-        snippet: normalized.snippet || "",
-        source: normalized.source || "web",
-        location: normalized.location || "",
-        skill: normalized.skill || "",
-        status: normalized.status || "New",
-        phone: normalized.phone || null,
-        email: normalized.email || null,
-        external_id: normalized.external_id || null,
+        name: item.name || "Unnamed business",
+        url: item.url,
+        snippet: item.snippet || "",
+        source: item.source || "web",
+        location: item.location || "",
+        skill: item.skill || "",
+        status: item.status || "New",
+        phone: item.phone || null,
+        email: item.email || null,
+        external_id: item.external_id || null
       };
 
       const { error } = await supabase
         .from("leads")
         .upsert(payload, {
-          onConflict: "user_id,url",
-          ignoreDuplicates: false,
+          onConflict: "user_id,url"
         });
 
-      if (error) console.error("Cloud save error:", error);
+      if (error) {
+        console.error("Cloud save error:", error);
+      }
     }
   }
 
   async function updateLead(id, status) {
-    const rows = localLeads().map((r) =>
-      String(r.id) === String(id) ? { ...r, status } : r
+    const rows = localLeads().map(row =>
+      String(row.id) === String(id)
+        ? { ...row, status }
+        : row
     );
 
-    setLocalLeads(rows);
+    writeLocal(rows);
 
-    if (online()) {
+    if (isConnected()) {
       const { error } = await supabase
         .from("leads")
         .update({ status })
         .eq("id", id);
 
-      if (error) console.error(error);
+      if (error) {
+        console.error("Status update failed:", error);
+      }
     }
 
     await renderAll();
-  }
-
-  async function syncLocalToCloud() {
-    if (!online()) return;
-
-    const rows = localLeads();
-    if (!rows.length) return;
-
-    const payload = rows.map((r) => ({
-      user_id: user.id,
-      name: r.name,
-      url: r.url,
-      snippet: r.snippet || "",
-      source: r.source || "web",
-      location: r.location || "",
-      skill: r.skill || "",
-      status: r.status || "New",
-      phone: r.phone || null,
-      email: r.email || null,
-      external_id: r.external_id || null,
-    }));
-
-    const { error } = await supabase
-      .from("leads")
-      .upsert(payload, {
-        onConflict: "user_id,url",
-        ignoreDuplicates: true,
-      });
-
-    if (error) {
-      console.error("Could not sync browser leads:", error);
-    } else {
-      notify("Browser leads synced to your account.");
-    }
   }
 
   function getSkill() {
@@ -298,734 +278,682 @@
   }
 
   function buildQueries(skill, location, businessType) {
-    const s = skill.toLowerCase();
-    const loc =
-      location && location.toLowerCase() !== "worldwide"
+    const type = businessType
+      ? businessType + " "
+      : "";
+
+    const place =
+      location && location !== "Worldwide"
         ? ` "${location}"`
         : "";
-    const type = businessType ? `${businessType} ` : "";
-
-    if (/excel|data|analytics|power bi|spreadsheet/.test(s)) {
-      return [
-        `${type}business needs Excel dashboard reporting spreadsheet automation${loc}`,
-        `${type}company hiring freelance data analyst Excel reporting${loc}`,
-        `${type}business data entry spreadsheet cleanup services${loc}`,
-      ];
-    }
-
-    if (/video|edit|reel|short/.test(s)) {
-      return [
-        `${type}business looking for video editor reels${loc}`,
-        `${type}brand social media video content${loc}`,
-        `${type}business promotional video production${loc}`,
-      ];
-    }
-
-    if (/website|web design|development/.test(s)) {
-      return [
-        `${type}business website redesign web design${loc}`,
-        `${type}small business needs website landing page${loc}`,
-        `${type}business no website contact details${loc}`,
-      ];
-    }
-
-    if (/social media|content strategy|instagram/.test(s)) {
-      return [
-        `${type}business social media management content marketing${loc}`,
-        `${type}business Instagram content inconsistent${loc}`,
-        `${type}company looking for social media manager${loc}`,
-      ];
-    }
-
-    if (/graphic|logo|design|canva/.test(s)) {
-      return [
-        `${type}business logo designer branding design${loc}`,
-        `${type}small business promotional creatives poster design${loc}`,
-        `${type}brand needs graphic design support${loc}`,
-      ];
-    }
-
-    if (/bookkeep|account|financial/.test(s)) {
-      return [
-        `${type}small business bookkeeping accounting spreadsheet support${loc}`,
-        `${type}business part-time bookkeeper accounting support${loc}`,
-        `${type}business financial reporting bookkeeping services${loc}`,
-      ];
-    }
 
     return [
-      `${type}business needs ${skill}${loc}`,
-      `${type}companies hiring freelance ${skill}${loc}`,
-      `${type}business looking for ${skill} services${loc}`,
+      `${type}business ${skill} services official website contact${place}`,
+      `${type}business looking for ${skill} freelance services${place}`,
+      `${type}small business ${skill} contact phone website${place}`
     ];
   }
 
- 
-async function searchLeads() {
-  const skill = getSkill();
-  const requestedLocation = $("location").value.trim() || "Worldwide";
-  const businessType = $("business-type").value.trim();
-  const source = $("source").value;
-  const freshness = $("freshness").value;
-  const targetCount = Number($("count").value);
-
-  if (!skill) {
-    statusText("Choose a service first.", "error");
-    return;
-  }
-
-  const button = $("search-button");
-  button.disabled = true;
-  button.textContent = "Searching…";
-  statusText("Searching India and international markets…");
-
-  try {
-    if (!online()) {
-      statusText(
-        configured
-          ? "Please sign in to Supabase before searching."
-          : "Supabase is not configured. Check config.js.",
-        "error"
-      );
-      return;
-    }
-
-    // Search the two markets separately to reduce duplicates.
-    const markets = [
-      {
-        location: "India",
-        label: "India",
-        target: targetCount === 10 ? 10 : 20
-      },
-      {
-        location: "International businesses outside India",
-        label: "International",
-        target: targetCount === 10 ? 0 : 20
-      }
-    ];
-
-    const combined = [];
-    const seenUrls = new Set();
-    const errors = [];
-
-    for (const market of markets) {
-      if (!market.target) continue;
-
-      statusText(`Searching ${market.label}…`);
-
-      try {
-        const { data, error } = await supabase.functions.invoke(
-          "search-leads",
-          {
-            body: {
-              skill,
-              location: market.location,
-              businessType,
-              source,
-              freshness,
-              count: market.target,
-              queries: buildQueries(
-                skill,
-                market.location,
-                businessType
-              )
-            }
-          }
-        );
-
-        if (error) throw error;
-
-        const results = Array.isArray(data?.results)
-          ? data.results
-          : [];
-
-        for (const result of results) {
-          if (!result.url) continue;
-
-          let normalizedUrl;
-          try {
-            const parsed = new URL(result.url);
-            normalizedUrl = parsed.origin + parsed.pathname.replace(/\/+$/, "");
-          } catch {
-            continue;
-          }
-
-          if (seenUrls.has(normalizedUrl)) continue;
-          seenUrls.add(normalizedUrl);
-
-          combined.push({
-            ...result,
-            id: result.id || crypto.randomUUID(),
-            location: result.location || market.label,
+  async function runMarketSearch(
+    market,
+    skill,
+    businessType,
+    source,
+    freshness,
+    count
+  ) {
+    const { data, error } =
+      await supabase.functions.invoke("search-leads", {
+        body: {
+          skill,
+          location: market.location,
+          businessType,
+          source,
+          freshness,
+          count,
+          queries: buildQueries(
             skill,
-            status: result.status || "New",
-            phone: String(result.phone || "").trim(),
-            market: market.label
-          });
+            market.location,
+            businessType
+          )
         }
-      } catch (marketError) {
-        console.error(`${market.label} search failed:`, marketError);
-        errors.push(market.label);
-      }
-    }
+      });
 
-    if (!combined.length) {
-      currentLeads = [];
-      renderResults();
-      statusText(
-        errors.length
-          ? `Search failed for: ${errors.join(", ")}. Check Edge Function logs and API configuration.`
-          : "No results returned. Try another service or business type.",
-        "error"
+    if (error) {
+      throw new Error(
+        error.message || "Search function failed"
       );
-      return;
     }
 
-    // Save the results and preserve existing statuses/contact details.
-    const existing = await allLeads();
-    const existingByUrl = new Map(
-      existing.filter(item => item.url).map(item => [item.url, item])
-    );
-
-    let added = 0;
-
-    for (const lead of combined) {
-      const previous = existingByUrl.get(lead.url);
-
-      const savedLead = {
-        ...lead,
-        phone: lead.phone || previous?.phone || "",
-        email: lead.email || previous?.email || "",
-        status: previous?.status || "New"
-      };
-
-      await saveLead(savedLead);
-
-      if (!previous) added++;
-    }
-
-    currentLeads = combined.map(lead => {
-      const previous = existingByUrl.get(lead.url);
-
-      return {
-        ...lead,
-        phone: lead.phone || previous?.phone || "",
-        email: lead.email || previous?.email || "",
-        status: previous?.status || "New"
-      };
-    });
-
-    const indiaCount = currentLeads.filter(
-      lead => lead.market === "India"
-    ).length;
-
-    const internationalCount = currentLeads.filter(
-      lead => lead.market === "International"
-    ).length;
-
-    renderResults();
-
-    statusText(
-      `Found ${currentLeads.length} results: ${indiaCount} India, ${internationalCount} international. ${added} new leads saved. Review each business before contacting it.`,
-      "success"
-    );
-  } catch (error) {
-    console.error(error);
-    statusText(
-      `${error.message || "Search failed."} Check Supabase and the search-leads function.`,
-      "error"
-    );
-  } finally {
-    button.disabled = false;
-    button.innerHTML = "<span>⌕</span> Find relevant leads";
-    await renderAll();
+    return Array.isArray(data?.results)
+      ? data.results
+      : [];
   }
-}
-{
+
+  async function searchLeads() {
     const skill = getSkill();
-    const location = $("location").value.trim() || "Worldwide";
+    const selectedMarket = $("location").value;
     const businessType = $("business-type").value.trim();
     const source = $("source").value;
     const freshness = $("freshness").value;
     const count = Number($("count").value);
 
     if (!skill) {
-      statusText("Choose a skill or enter a custom skill.", "error");
+      setStatus(
+        "Choose or enter a service first.",
+        "error"
+      );
+      return;
+    }
+
+    if (!isConnected()) {
+      setStatus(
+        configured
+          ? "Please sign in before searching live leads."
+          : "Supabase is not configured. Check config.js.",
+        "error"
+      );
       return;
     }
 
     const button = $("search-button");
     button.disabled = true;
     button.textContent = "Searching…";
-    statusText("Searching for relevant business leads…");
+    currentLeads = [];
+
+    const markets = selectedMarket === "Worldwide"
+      ? (
+          count === 10
+            ? [{
+                location: "India",
+                market: "India",
+                count: 10
+              }]
+            : [
+                {
+                  location: "India",
+                  market: "India",
+                  count: 20
+                },
+                {
+                  location: "International businesses outside India",
+                  market: "International",
+                  count: 20
+                }
+              ]
+        )
+      : [{
+          location: selectedMarket,
+          market: selectedMarket.toLowerCase().includes("india")
+            ? "India"
+            : "International",
+          count
+        }];
+
+    const results = [];
+    const seen = new Set();
+    const failures = [];
 
     try {
-      if (!online()) {
-        const queries = buildQueries(skill, location, businessType);
+      for (const market of markets) {
+        setStatus(`Searching ${market.market}…`);
 
-        statusText(
-          configured
-            ? "Sign in to Supabase to run a live lead search."
-            : "Supabase is not configured. Check config.js first.",
-          "error"
-        );
-
-        currentLeads = queries.map((q, i) => ({
-          id: "query-" + i,
-          name: "Search query " + (i + 1),
-          url:
-            "https://search.brave.com/search?q=" +
-            encodeURIComponent(q),
-          snippet: q,
-          source: "Search plan",
-          location,
-          skill,
-          status: "Query only",
-          phone: "",
-        }));
-
-        renderResults();
-        return;
-      }
-
-      const { data, error } = await supabase.functions.invoke(
-        "search-leads",
-        {
-          body: {
+        try {
+          const rows = await runMarketSearch(
+            market,
             skill,
-            location,
             businessType,
             source,
             freshness,
-            count,
-            queries: buildQueries(skill, location, businessType),
-          },
+            market.count
+          );
+
+          for (const row of rows) {
+            if (!row.url) continue;
+
+            const url = safeUrl(row.url);
+            if (url === "#") continue;
+
+            const key = url
+              .replace(/\/+$/, "")
+              .toLowerCase();
+
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            results.push({
+              ...row,
+              id: row.id || (
+                crypto.randomUUID
+                  ? crypto.randomUUID()
+                  : key
+              ),
+              url,
+              name: row.name || "Unnamed business",
+              snippet: row.snippet || "",
+              phone: String(row.phone || "").trim(),
+              email: row.email || "",
+              source: row.source || source,
+              location: row.location || market.location,
+              market: market.market,
+              skill,
+              status: "New"
+            });
+          }
+        } catch (error) {
+          console.error(
+            `${market.market} search failed:`,
+            error
+          );
+          failures.push(market.market);
         }
-      );
-
-      if (error) throw new Error(error.message || "Search function failed.");
-
-      const results = data?.results || [];
+      }
 
       if (!results.length) {
-        statusText(
-          data?.message ||
-            "No results returned. Check the search API setup and try a broader query.",
+        setStatus(
+          failures.length
+            ? `Search failed for ${failures.join(" and ")}. Check the search-leads Edge Function logs and API secret.`
+            : "No results returned. Try another service or business type.",
           "error"
         );
-        currentLeads = [];
-        renderResults();
+
+        await renderResults();
         return;
       }
 
       const existing = await allLeads();
-      const existingByUrl = new Map(
-        existing.filter((r) => r.url).map((r) => [r.url, r])
+
+      const byUrl = new Map(
+        existing
+          .filter(row => row.url)
+          .map(row => [row.url, row])
       );
 
       let added = 0;
 
-      for (const r of results) {
-        if (!r.url) continue;
+      for (const lead of results) {
+        const previous = byUrl.get(lead.url);
 
-        const previous = existingByUrl.get(r.url);
+        const merged = {
+          ...previous,
+          ...lead,
+          phone: lead.phone || previous?.phone || "",
+          email: lead.email || previous?.email || "",
+          status: previous?.status || "New"
+        };
 
-        await saveLead({
-          ...r,
-          phone: r.phone || previous?.phone || "",
-          email: r.email || previous?.email || "",
-          skill,
-          location,
-          status: previous?.status || "New",
-        });
+        await saveLead(merged);
 
         if (!previous) added++;
       }
 
-      currentLeads = results.map((r) => {
-        const previous = existingByUrl.get(r.url);
+      currentLeads = results.map(lead => ({
+        ...lead,
+        phone: lead.phone || byUrl.get(lead.url)?.phone || "",
+        status: byUrl.get(lead.url)?.status || "New"
+      }));
 
-        return {
-          ...r,
-          phone: r.phone || previous?.phone || "",
-          email: r.email || previous?.email || "",
-          skill,
-          location,
-          status: previous?.status || "New",
-        };
-      });
+      const india = currentLeads.filter(
+        row => row.market === "India"
+      ).length;
 
-      statusText(
-        `Found ${results.length} results; ${added} new leads saved. Review each prospect before outreach.`,
+      const international = currentLeads.filter(
+        row => row.market === "International"
+      ).length;
+
+      setStatus(
+        `Returned ${currentLeads.length} results (${india} India, ${international} international); ${added} new leads saved. The count depends on search API results.`,
         "success"
       );
 
-      renderResults();
-    } catch (e) {
-      console.error(e);
-      statusText(
-        (e.message || "Search failed.") +
-          " Check Supabase configuration, function deployment, and API secrets.",
+      await renderResults();
+    } catch (error) {
+      console.error(error);
+
+      setStatus(
+        `${error.message || "Search failed"}. Check Supabase configuration and Edge Function deployment.`,
         "error"
       );
     } finally {
       button.disabled = false;
-      button.innerHTML = "<span>⌕</span> Find relevant leads";
+      button.textContent = "⌕ Find relevant leads";
       await renderAll();
     }
   }
 
-  function leadRow(lead, isSaved = false) {
-    const id = esc(lead.id || lead.url);
-    const title = esc(lead.name || "Untitled result");
+  function leadRow(lead) {
+    const id = esc(lead.id);
+    const title = esc(lead.name || "Unnamed business");
     const url = safeUrl(lead.url);
-    const source = esc(lead.source || "web");
-    const location = esc(lead.location || "");
-    const status = esc(lead.status || "New");
-    const phone = String(lead.phone || "").trim();
+    const phone = esc(lead.phone || "No phone found");
+    const market = esc(
+      lead.market || lead.location || "—"
+    );
+    const snippet = esc(
+      lead.snippet || "No summary supplied by search source."
+    );
+
+    const statusOptions = [
+      "New",
+      "Review",
+      "Contacted",
+      "Not a fit"
+    ];
 
     return `<tr>
       <td>
         <a class="lead-title" href="${url}" target="_blank" rel="noopener noreferrer">${title}</a>
-        <div class="lead-meta">${location}</div>
-        <div class="lead-meta">${esc(lead.skill || "")}</div>
-        <div class="lead-meta">${phone ? "Phone: " + esc(phone) : "Phone not found"}</div>
+        <div class="lead-meta">${phone}</div>
       </td>
-      <td><div class="match-note">${esc(lead.snippet || "Review the source to assess fit.")}</div></td>
-      <td><a class="source-link" href="${url}" target="_blank" rel="noopener noreferrer">${source} ↗</a></td>
       <td>
-        <select class="status-select" data-status-id="${id}" aria-label="Lead status">
-          <option ${status === "New" ? "selected" : ""}>New</option>
-          <option ${status === "Review" ? "selected" : ""}>Review</option>
-          <option ${status === "Contacted" ? "selected" : ""}>Contacted</option>
-          <option ${status === "Replied" ? "selected" : ""}>Replied</option>
-          <option ${status === "Not a fit" ? "selected" : ""}>Not a fit</option>
+        <div class="match-note">${snippet}</div>
+        <div class="lead-meta">${esc(lead.email || "")}</div>
+      </td>
+      <td>
+        ${market}
+        <div class="lead-meta">${esc(lead.source || "web")}</div>
+      </td>
+      <td>
+        <select class="status-select" data-status-id="${id}">
+          ${statusOptions.map(status =>
+            `<option ${status === (lead.status || "New") ? "selected" : ""}>${status}</option>`
+          ).join("")}
         </select>
       </td>
-      <td><button class="small-action" data-campaign-id="${id}">${isSaved ? "Draft ↗" : "Save +"}</button></td>
+      <td>
+        <button class="small-action" data-save-id="${id}">Outreach</button>
+      </td>
     </tr>`;
   }
 
-  function renderResults() {
-    const rows = $("lead-rows");
-
-    if (!currentLeads.length) {
-      rows.innerHTML = `<tr><td colspan="5" class="empty-state">
-        <span>⌕</span><b>No live results to show</b>
-        <small>Run a search after connecting Supabase and a lead source.</small>
-      </td></tr>`;
-      return;
-    }
-
-    rows.innerHTML = currentLeads.map((l) => leadRow(l, false)).join("");
-
-    rows.querySelectorAll("[data-campaign-id]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const lead = currentLeads.find(
-          (l) => String(l.id || l.url) === btn.dataset.campaignId
-        );
-
-        if (lead) {
-          await saveLead({ ...lead, status: "New" });
-          notify("Lead saved.");
-          await renderAll();
-          setCampaignLead(lead.url);
-          switchView("campaigns");
-        }
-      });
-    });
-
-    attachStatusHandlers(rows);
-  }
-
-  function attachStatusHandlers(root) {
-    root.querySelectorAll("[data-status-id]").forEach((sel) => {
-      sel.addEventListener("change", async () => {
-        await updateLead(sel.dataset.statusId, sel.value);
-        notify("Lead status updated.");
-      });
-    });
-
-    root.querySelectorAll("[data-campaign-id]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const leads = await allLeads();
-        const lead = leads.find(
-          (l) =>
-            String(l.id) === btn.dataset.campaignId ||
-            l.url === btn.dataset.campaignId
-        );
-
-        if (lead) {
-          setCampaignLead(lead.url);
-          switchView("campaigns");
-        }
-      });
-    });
-  }
-
-  function setCampaignLead(url) {
-    const select = $("campaign-lead");
-    select.value = url || "";
+  async function renderResults() {
+    $("lead-rows").innerHTML = currentLeads.length
+      ? currentLeads.map(leadRow).join("")
+      : '<tr><td colspan="5" class="empty-state">No results to display yet.</td></tr>';
   }
 
   async function renderAll() {
-    const leads = await allLeads();
+    const rows = await allLeads();
 
-    $("saved-count").textContent = leads.length;
-    $("stat-total").textContent = leads.length;
-    $("stat-review").textContent = leads.filter((l) =>
-      ["New", "Review"].includes(l.status || "New")
-    ).length;
-    $("stat-contacted").textContent = leads.filter((l) =>
-      ["Contacted", "Replied"].includes(l.status)
+    $("saved-count").textContent = rows.length;
+    $("stat-total").textContent = rows.length;
+
+    $("stat-review").textContent = rows.filter(
+      row => !["Contacted", "Not a fit"].includes(row.status)
     ).length;
 
-    const saved = $("saved-rows");
-    saved.innerHTML = leads.length
-      ? leads.map((l) => leadRow(l, true)).join("")
-      : `<tr><td colspan="5" class="empty-state">
-          <span>▤</span><b>No saved leads</b>
-          <small>Save a result from the dashboard.</small>
-        </td></tr>`;
+    $("stat-contacted").textContent = rows.filter(
+      row => row.status === "Contacted"
+    ).length;
 
-    attachStatusHandlers(saved);
+    $("saved-rows").innerHTML = rows.length
+      ? rows.map(leadRow).join("")
+      : '<tr><td colspan="5" class="empty-state">No saved leads yet.</td></tr>';
 
-    const options = $("campaign-lead");
-    const previous = options.value;
+    const select = $("campaign-lead");
+    const old = select.value;
 
-    options.innerHTML =
+    select.innerHTML =
       '<option value="">Choose a lead…</option>' +
-      leads
-        .map(
-          (l) =>
-            `<option value="${esc(l.url)}">${esc(l.name)} — ${esc(l.skill || "")}</option>`
-        )
-        .join("");
+      rows.map(row =>
+        `<option value="${esc(row.url)}">${esc(row.name || row.url)}</option>`
+      ).join("");
 
-    if ([...options.options].some((o) => o.value === previous)) {
-      options.value = previous;
+    if (rows.some(row => row.url === old)) {
+      select.value = old;
     }
+
+    updateConnection();
   }
 
   function switchView(view) {
     currentView = view;
 
-    ["dashboard", "saved", "campaigns"].forEach((v) => {
-      $(v + "-view").hidden = v !== view;
+    for (const name of [
+      "dashboard",
+      "saved",
+      "campaigns"
+    ]) {
+      $(name + "-view").hidden = name !== view;
+    }
+
+    document.querySelectorAll(".nav-item").forEach(button => {
+      button.classList.toggle(
+        "active",
+        button.dataset.view === view
+      );
     });
 
-    document.querySelectorAll(".nav-item").forEach((b) => {
-      b.classList.toggle("active", b.dataset.view === view);
-    });
-
-    $("page-title").textContent = ({
-      dashboard: "Find your next client",
-      saved: "Your lead library",
-      campaigns: "Outreach drafts",
-    })[view];
-
-    if (view !== "dashboard") renderAll();
+    $("page-title").textContent =
+      view === "dashboard"
+        ? "Find your next client"
+        : view === "saved"
+          ? "Saved leads"
+          : "WhatsApp outreach";
   }
 
-  function selectedCampaignLead() {
-    return allLeads().then((leads) =>
-      leads.find((l) => l.url === $("campaign-lead").value)
-    );
+  async function selectedLead() {
+    const url = $("campaign-lead").value;
+    return (await allLeads()).find(row => row.url === url);
   }
 
-  async function generateMessage() {
-    const lead = await selectedCampaignLead();
+  async function prepareMessage() {
+    const lead = await selectedLead();
+
+    if (!lead) {
+      notify("Choose a saved lead first.");
+      return "";
+    }
+
+    const sender = $("sender-name").value.trim() || "Manan";
+    const offer = $("offer").value.trim() ||
+      lead.skill || "my services";
+
+    const name = String(lead.name || "your team")
+      .split(/[|—,-]/)[0]
+      .trim();
+
+    const message =
+      `Hi ${name}, I came across your business while researching ${lead.location || "businesses"} and wanted to reach out. I'm ${sender}, and I help businesses with ${offer}. I had a couple of ideas that may be useful for your business. Would you be open to a brief conversation? If this isn't relevant, no worries.`;
+
+    $("message-output").value = message;
+    return message;
+  }
+
+  async function openWhatsApp() {
+    const lead = await selectedLead();
 
     if (!lead) {
       notify("Choose a saved lead first.");
       return;
     }
 
-    const sender = $("sender-name").value.trim() || "Manan Singh";
-    const offer = $("offer").value.trim() || lead.skill || "my services";
-    const name = (lead.name || "there").split(/[-|,]/)[0].trim();
+    const digits = String(lead.phone || "")
+      .replace(/\D/g, "");
 
-    $("message-output").value =
-      `Hi ${name}, I came across your business while researching ` +
-      `${lead.location || "businesses"} and wanted to reach out. ` +
-      `I’m ${sender}, and I help businesses with ${offer}. ` +
-      `I had a couple of ideas that may be useful for your business. ` +
-      `Would you be open to a brief conversation? If this isn’t relevant, no worries.`;
-
-    notify("Draft created. Personalise it before sending.");
-  }
-
-  async function exportCsv() {
-    const leads = await allLeads();
-
-    if (!leads.length) {
-      notify("No saved leads to export.");
+    if (digits.length < 8 || digits.length > 15) {
+      notify(
+        "This lead has no usable phone number. Check the source page first."
+      );
       return;
     }
 
-    const cols = [
-      "name", "url", "snippet", "source", "location",
-      "skill", "status", "phone", "email", "created_at",
-    ];
+    const message = $("message-output").value.trim() ||
+      await prepareMessage();
 
-    const csv = [
-      cols.join(","),
-      ...leads.map((r) =>
-        cols
-          .map((c) => `"${String(r[c] ?? "").replace(/"/g, '""')}"`)
-          .join(",")
-      ),
-    ].join("\r\n");
+    if (!message) return;
 
-    const blob = new Blob(["\ufeff" + csv], {
-      type: "text/csv;charset=utf-8;",
+    window.open(
+      `https://wa.me/${digits}?text=${encodeURIComponent(message)}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }
+
+  async function startQueue() {
+    const rows = await allLeads();
+
+    queue = rows.filter(row => {
+      const digits = String(row.phone || "")
+        .replace(/\D/g, "");
+
+      return row.url &&
+        digits.length >= 8 &&
+        digits.length <= 15;
     });
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "leadpilot-leads.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    queueIndex = 0;
+
+    if (!queue.length) {
+      $("queue-status").textContent =
+        "No saved leads with usable phone numbers. Search and save leads first.";
+      return;
+    }
+
+    switchView("campaigns");
+    await openQueueLead();
   }
 
-  async function authAction(action) {
-    if (!configured) {
-      notify("Open config.js and add your Supabase project URL and public anon key first.");
+  async function openQueueLead() {
+    if (queueIndex >= queue.length) {
+      $("queue-status").textContent =
+        "Queue complete. You reached the end of the saved contacts.";
+      $("queue-next").disabled = true;
       return;
     }
 
-    if (!supabase) {
-      notify("Supabase is still loading. Try again.");
-      return;
-    }
+    const lead = queue[queueIndex];
 
-    if (action === "signout") {
-      await supabase.auth.signOut();
-      user = null;
-      updateConnection();
-      await renderAll();
-      $("auth-dialog").close();
-      return;
-    }
+    $("campaign-lead").value = lead.url;
+    await prepareMessage();
 
-    const email = $("auth-email").value.trim();
-    const password = $("auth-password").value;
+    $("queue-status").textContent =
+      `Contact ${queueIndex + 1} of ${queue.length}: ${lead.name}. Review the draft and click “Open current WhatsApp”. After you finish, click “Next contact”.`;
 
-    if (!email || password.length < 8) {
-      authStatus(
-        "Enter a valid email and password with at least 8 characters.",
-        "error"
-      );
-      return;
-    }
-
-    authStatus("Connecting…");
-
-    const result =
-      action === "signup"
-        ? await supabase.auth.signUp({ email, password })
-        : await supabase.auth.signInWithPassword({ email, password });
-
-    if (result.error) {
-      authStatus(result.error.message, "error");
-      return;
-    }
-
-    if (action === "signup" && !result.data.session) {
-      authStatus(
-        "Account created. Check your email to confirm, then sign in.",
-        "success"
-      );
-      return;
-    }
-
-    user = result.data.user;
-    updateConnection();
-    await syncLocalToCloud();
-    await renderAll();
-    $("auth-dialog").close();
-    notify("Workspace connected.");
+    $("queue-next").disabled = false;
   }
+
+  async function nextQueueLead() {
+    if (!queue.length) {
+      $("queue-status").textContent = "Start the queue first.";
+      return;
+    }
+
+    queueIndex++;
+
+    if (queueIndex >= queue.length) {
+      $("queue-status").textContent = "Queue complete.";
+      $("queue-next").disabled = true;
+      return;
+    }
+
+    await openQueueLead();
+  }
+
+  function stopQueue() {
+    queue = [];
+    queueIndex = 0;
+    $("queue-next").disabled = true;
+    $("queue-status").textContent = "Queue stopped.";
+  }
+
+  function exportCsv() {
+    allLeads().then(rows => {
+      if (!rows.length) {
+        notify("There are no leads to export.");
+        return;
+      }
+
+      const fields = [
+        "name",
+        "url",
+        "snippet",
+        "source",
+        "location",
+        "market",
+        "skill",
+        "phone",
+        "email",
+        "status"
+      ];
+
+      const csv = [
+        fields.join(","),
+        ...rows.map(row =>
+          fields.map(key =>
+            `"${String(row[key] ?? "").replace(/"/g, '""')}"`
+          ).join(",")
+        )
+      ].join("\r\n");
+
+      const blob = new Blob(
+        [csv],
+        { type: "text/csv;charset=utf-8;" }
+      );
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = "lead-graber-leads.csv";
+      a.click();
+
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  document.addEventListener("click", async event => {
+    const nav = event.target.closest("[data-view]");
+
+    if (nav) {
+      switchView(nav.dataset.view);
+    }
+
+    const save = event.target.closest("[data-save-id]");
+
+    if (save) {
+      const lead = (await allLeads()).find(
+        row => String(row.id) === save.dataset.saveId
+      );
+
+      if (lead) {
+        switchView("campaigns");
+        $("campaign-lead").value = lead.url;
+        await prepareMessage();
+      }
+    }
+
+    const status = event.target.closest("[data-status-id]");
+
+    if (status) {
+      await updateLead(status.dataset.statusId, status.value);
+    }
+  });
 
   $("skill").addEventListener("change", () => {
-    $("custom-skill-wrap").hidden = $("skill").value !== "custom skill";
+    $("custom-skill-wrap").hidden =
+      $("skill").value !== "custom skill";
   });
 
-  $("search-button").addEventListener("click", searchLeads);
-  $("export-button").addEventListener("click", exportCsv);
-  $("saved-export-button").addEventListener("click", exportCsv);
+  $("search-button").addEventListener(
+    "click",
+    searchLeads
+  );
 
-  document.querySelectorAll(".nav-item").forEach((b) => {
-    b.addEventListener("click", () => switchView(b.dataset.view));
-  });
-
-  $("auth-button").addEventListener("click", () => {
-    if (user) {
-      authAction("signout");
-    } else if (configured) {
-      $("auth-dialog").showModal();
-    } else {
-      notify("Edit config.js to connect Supabase.");
-    }
-  });
-
-  $("sign-in-button").addEventListener("click", () => authAction("signin"));
-  $("sign-up-button").addEventListener("click", () => authAction("signup"));
-  $("generate-message").addEventListener("click", generateMessage);
+  $("generate-message").addEventListener(
+    "click",
+    prepareMessage
+  );
 
   $("copy-message").addEventListener("click", async () => {
-    if (!$("message-output").value) {
+    const text = $("message-output").value;
+
+    if (!text) {
       notify("Generate a message first.");
       return;
     }
 
     try {
-      await navigator.clipboard.writeText($("message-output").value);
+      await navigator.clipboard.writeText(text);
       notify("Message copied.");
     } catch {
-      notify("Clipboard permission unavailable; select and copy the text.");
+      $("message-output").select();
+      document.execCommand("copy");
+      notify("Message copied.");
     }
   });
 
-  // Use the selected lead's saved phone number. Never silently open a
-  // generic WhatsApp chat or ask for a number that is not stored.
-  $("whatsapp-message").addEventListener("click", async () => {
-    const leadUrl = $("campaign-lead").value;
-    const message = $("message-output").value.trim();
+  $("whatsapp-message").addEventListener(
+    "click",
+    openWhatsApp
+  );
 
-    if (!leadUrl || !message) {
-      notify("Choose a lead and generate a message first.");
+  $("queue-start").addEventListener(
+    "click",
+    startQueue
+  );
+
+  $("queue-next").addEventListener(
+    "click",
+    nextQueueLead
+  );
+
+  $("queue-stop").addEventListener(
+    "click",
+    stopQueue
+  );
+
+  $("export-button").addEventListener(
+    "click",
+    exportCsv
+  );
+
+  $("saved-export-button").addEventListener(
+    "click",
+    exportCsv
+  );
+
+  $("auth-button").addEventListener("click", async () => {
+    if (user) {
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        notify(error.message);
+      } else {
+        user = null;
+        updateConnection();
+        await renderAll();
+      }
+    } else {
+      $("auth-dialog").showModal();
+    }
+  });
+
+  $("sign-in-button").addEventListener("click", async () => {
+    if (!supabase) {
+      setAuthStatus(
+        "Supabase is not configured. Check config.js.",
+        "error"
+      );
       return;
     }
 
-    const leads = await allLeads();
-    const selected = leads.find((lead) => lead.url === leadUrl);
-    const rawPhone = String(selected?.phone || "").trim();
+    const { error } = await supabase.auth.signInWithPassword({
+      email: $("auth-email").value.trim(),
+      password: $("auth-password").value
+    });
 
-    if (!rawPhone) {
-      notify("No stored phone number for this lead. Check its source first.");
-      return;
-    }
-
-    // wa.me needs digits only, including the country calling code.
-    // It does not accept a leading plus sign.
-    const phone = rawPhone.replace(/\D/g, "");
-
-    if (phone.length < 8 || phone.length > 15) {
-      notify("The stored international phone number is invalid.");
-      return;
-    }
-
-    window.open(
-      `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
-      "_blank",
-      "noopener,noreferrer"
+    setAuthStatus(
+      error ? error.message : "Signed in.",
+      error ? "error" : "success"
     );
+
+    if (!error) {
+      $("auth-dialog").close();
+      await renderAll();
+    }
   });
 
-  $("auth-dialog").addEventListener("click", (e) => {
-    if (e.target === $("auth-dialog")) $("auth-dialog").close();
+  $("sign-up-button").addEventListener("click", async () => {
+    if (!supabase) {
+      setAuthStatus(
+        "Supabase is not configured. Check config.js.",
+        "error"
+      );
+      return;
+    }
+
+    const { error } = await supabase.auth.signUp({
+      email: $("auth-email").value.trim(),
+      password: $("auth-password").value
+    });
+
+    setAuthStatus(
+      error
+        ? error.message
+        : "Account request submitted. Check your email if confirmation is enabled.",
+      error ? "error" : "success"
+    );
   });
 
   initSupabase();
