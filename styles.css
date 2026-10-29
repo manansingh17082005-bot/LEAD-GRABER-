@@ -914,3 +914,32 @@ select option:checked {
   background-color: #2563eb !important;
   color: #ffffff !important;
 }
+
+/* LEAD-GRABER: Fix invisible selected saved lead */
+
+#campaigns-view select,
+#whatsapp-view select,
+select {
+  color: #f8fafc !important;
+  background-color: #0b1425 !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+
+/* Make every dropdown option readable */
+#campaigns-view select option,
+#whatsapp-view select option,
+select option {
+  color: #f8fafc !important;
+  background-color: #0b1425 !important;
+  -webkit-text-fill-color: #f8fafc !important;
+}
+
+/* Keep the selected lead text visible */
+#campaigns-view select:focus,
+#whatsapp-view select:focus,
+select:focus {
+  outline: 2px solid #5eead4;
+  outline-offset: 2px;
+}
