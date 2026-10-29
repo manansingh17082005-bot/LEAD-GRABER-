@@ -106,7 +106,12 @@
         statusText(`Found ${results.length} results; ${added} new leads saved. Review each prospect before outreach.`,"success");
       } else {
         const queries=buildQueries(skill,location,businessType);
-        statusText("Supabase is not connected. Search plan generated below; connect Supabase and add a source API key to fetch live results.","error");
+        statusText(
+  configured
+    ? "Sign in to Supabase to run a live lead search."
+    : "Supabase is not configured. Check config.js first.",
+  "error"
+);
         currentLeads=queries.map((q,i)=>({id:"query-"+i,name:"Search query "+(i+1),url:"https://search.brave.com/search?q="+encodeURIComponent(q),snippet:q,source:"Search plan",location,skill,status:"Query only"}));
       }
       renderResults();
