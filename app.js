@@ -625,8 +625,6 @@
 
       const select = $("campaign-lead");
 
-      const select = $("campaign-lead");
-
       if (select) {
         const previousValue = select.value;
         const options = [
