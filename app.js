@@ -627,10 +627,30 @@
 
       if (select) {
         const old = select.value;
-        select.innerHTML = '<option value="">Choose a lead…</option>' +
-          rows.filter(row => row.url).map(row =>
-            `<option value="${esc(row.url)}">${esc(row.name || row.url)}</option>`
-          ).join("");
+        
+select.innerHTML = '<option value="">Choose a lead…</option>' +
+  rows.filter(row => row.url).map(row => {
+    const label = String(
+      row.name ||
+      row.business_name ||
+      row.company ||
+      row.title ||
+      row.url ||
+      "Unnamed lead"
+    );
+
+    return `<option value="${esc(row.url)}">${esc(label)}</option>`;
+  }).join("");
+
+// Force readable text in the dropdown
+select.style.color = "#ffffff";
+select.style.backgroundColor = "#0b1425";
+select.style.webkitTextFillColor = "#ffffff";
+
+Array.from(select.options).forEach(option => {
+  option.style.color = "#ffffff";
+  option.style.backgroundColor = "#0b1425";
+});
 
         if (rows.some(row => row.url === old)) select.value = old;
       }
