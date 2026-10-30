@@ -624,6 +624,7 @@
       }
 
       const select = $("campaign-lead");
+      console.log("SAVED LEADS DATA:", rows);
 
       if (select) {
        
