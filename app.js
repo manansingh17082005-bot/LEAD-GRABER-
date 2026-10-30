@@ -624,63 +624,40 @@
       }
 
       const select = $("campaign-lead");
-      console.log("SAVED LEADS DATA:", rows);
+
+      const select = $("campaign-lead");
 
       if (select) {
-       
-const old = select.value;
+        const previousValue = select.value;
+        const options = [
+          new Option("Choose a lead…", "")
+        ];
 
-select.replaceChildren(
-  new Option("Choose a lead…", "")
-);
+        rows
+          .filter(row => String(row.url || "").trim())
+          .forEach(row => {
+            const label = [
+              row.name,
+              row.business_name,
+              row.company,
+              row.title,
+              row.url
+            ]
+              .map(value => String(value ?? "").trim())
+              .find(value => value.length > 0) || "Unnamed lead";
 
-rows
-  .filter(row => String(row.url || "").trim())
-  .forEach(row => {
-    const candidates = [
-      row.name,
-      row.business_name,
-      row.company,
-      row.title,
-      row.url
-    ];
+            options.push(
+              new Option(label, String(row.url).trim())
+            );
+          });
 
-    const label =
-      candidates
-        .map(value => String(value ?? "").trim())
-        .find(value => value.length > 0) || "Unnamed lead";
+        select.replaceChildren(...options);
+        select.style.color = "#f8fafc";
+        select.style.backgroundColor = "#0b1425";
 
-    const option = new Option(
-      label,
-      String(row.url).trim()
-    );
-
-    select.add(option);
-  });
-
-if ([...select.options].some(option => option.value === old)) {
-  select.value = old;
-}
-      row.company ||
-      row.title ||
-      row.url ||
-      "Unnamed lead"
-    );
-
-    return `<option value="${esc(row.url)}">${esc(label)}</option>`;
-  }).join("");
-
-// Force readable text in the dropdown
-select.style.color = "#ffffff";
-select.style.backgroundColor = "#0b1425";
-select.style.webkitTextFillColor = "#ffffff";
-
-Array.from(select.options).forEach(option => {
-  option.style.color = "#ffffff";
-  option.style.backgroundColor = "#0b1425";
-});
-
-        if (rows.some(row => row.url === old)) select.value = old;
+        if (options.some(option => option.value === previousValue)) {
+          select.value = previousValue;
+        }
       }
 
       updateConnection();
