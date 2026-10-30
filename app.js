@@ -626,13 +626,40 @@
       const select = $("campaign-lead");
 
       if (select) {
-        const old = select.value;
-        
-select.innerHTML = '<option value="">Choose a lead…</option>' +
-  rows.filter(row => row.url).map(row => {
-    const label = String(
-      row.name ||
-      row.business_name ||
+       
+const old = select.value;
+
+select.replaceChildren(
+  new Option("Choose a lead…", "")
+);
+
+rows
+  .filter(row => String(row.url || "").trim())
+  .forEach(row => {
+    const candidates = [
+      row.name,
+      row.business_name,
+      row.company,
+      row.title,
+      row.url
+    ];
+
+    const label =
+      candidates
+        .map(value => String(value ?? "").trim())
+        .find(value => value.length > 0) || "Unnamed lead";
+
+    const option = new Option(
+      label,
+      String(row.url).trim()
+    );
+
+    select.add(option);
+  });
+
+if ([...select.options].some(option => option.value === old)) {
+  select.value = old;
+}
       row.company ||
       row.title ||
       row.url ||
